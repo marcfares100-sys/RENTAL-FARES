@@ -5,14 +5,17 @@ import { useEffect, useMemo, useState } from 'react';
 import type { Store } from '@/app/api/store/route';
 import { Money } from '@/components/UI';
 
-type EntryType = 'RENT'|'DEPOSIT'|'EXPENSE'|'REFUND';
+type EntryType = 'RENT' | 'DEPOSIT' | 'EXPENSE' | 'REFUND';
 
+// Normalize various date inputs to ISO YYYY-MM-DD
 const toISO = (d?: string) => {
   if (!d) return '';
-  // Accept YYYY-MM-DD or D/M/Y; normalize to YYYY-MM-DD
+  // already ISO?
   const m = d.match(/^(\d{4})-(\d{2})-(\d{2})$/);
   if (m) return d;
-  const parts = d.replaceAll('.', '/').replaceAll('-', '/').split('/');
+
+  // Replace '.' or '-' with '/' then split (avoids String.replaceAll)
+  const parts = d.replace(/\./g, '/').replace(/-/g, '/').split('/');
   if (parts.length === 3) {
     const [dd, mm, yyyy] = parts.map(p => p.trim());
     if (yyyy?.length === 4) {
@@ -21,27 +24,36 @@ const toISO = (d?: string) => {
       return `${yyyy}-${M}-${D}`;
     }
   }
-  // fallback: keep as-is
   return d;
 };
 
 const fmtDMY = (iso?: string) => {
   if (!iso) return '—';
-  // from YYYY-MM-DD → DD/MM/YYYY
   const m = iso.match(/^(\d{4})-(\d{2})-(\d{2})$/);
   return m ? `${m[3]}/${m[2]}/${m[1]}` : iso;
 };
 
 export default function LogPage() {
-  const [store, setStore] = useState<Store>({ currency: 'USD', apartments: [], tenants: [], ledger: [] });
+  const [store, setStore] = useState<Store>({
+    currency: 'USD',
+    apartments: [],
+    tenants: [],
+    ledger: [],
+  });
   const [loading, setLoading] = useState(true);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [form, setForm] = useState<any>({});
   const [saving, setSaving] = useState(false);
 
   const currency = store.currency || 'USD';
-  const aptMap = useMemo(() => Object.fromEntries(store.apartments.map(a => [a.id, a.name])), [store.apartments]);
-  const tenMap = useMemo(() => Object.fromEntries(store.tenants.map(t => [t.id, t.name])), [store.tenants]);
+  const aptMap = useMemo(
+    () => Object.fromEntries(store.apartments.map(a => [a.id, a.name])),
+    [store.apartments]
+  );
+  const tenMap = useMemo(
+    () => Object.fromEntries(store.tenants.map(t => [t.id, t.name])),
+    [store.tenants]
+  );
 
   useEffect(() => {
     (async () => {
@@ -52,7 +64,10 @@ export default function LogPage() {
   }, []);
 
   const rows = useMemo(
-    () => [...store.ledger].sort((a, b) => (b.date || '').localeCompare(a.date || '')),
+    () =>
+      [...store.ledger].sort((a, b) =>
+        (b.date || '').localeCompare(a.date || '')
+      ),
     [store.ledger]
   );
 
@@ -65,7 +80,7 @@ export default function LogPage() {
       date: row.date ?? '',
       from: row.from ?? '',
       to: row.to ?? '',
-      amount: row.amount ?? 0
+      amount: row.amount ?? 0,
     });
   };
 
@@ -95,7 +110,6 @@ export default function LogPage() {
       alert('Save failed');
       return;
     }
-    // refresh
     const s = await fetch('/api/store', { cache: 'no-store' });
     setStore(await s.json());
     cancel();
@@ -121,9 +135,14 @@ export default function LogPage() {
 
   return (
     <main className="card">
-      <div className="h2" style={{display:'flex',justifyContent:'space-between',alignItems:'center'}}>
+      <div
+        className="h2"
+        style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}
+      >
         <span>Payments & Entries</span>
-        <span className="mono" style={{opacity:.7}}>Total: {rows.length}</span>
+        <span className="mono" style={{ opacity: 0.7 }}>
+          Total: {rows.length}
+        </span>
       </div>
 
       {rows.length === 0 ? (
@@ -155,7 +174,9 @@ export default function LogPage() {
                         value={form.date || ''}
                         onChange={e => setForm((f: any) => ({ ...f, date: e.target.value }))}
                       />
-                    ) : fmtDMY(l.date)}
+                    ) : (
+                      fmtDMY(l.date)
+                    )}
                   </td>
 
                   <td data-label="Type" className="mono">
@@ -163,14 +184,18 @@ export default function LogPage() {
                       <select
                         className="input"
                         value={form.type}
-                        onChange={e => setForm((f: any) => ({ ...f, type: e.target.value as EntryType }))}
+                        onChange={e =>
+                          setForm((f: any) => ({ ...f, type: e.target.value as EntryType }))
+                        }
                       >
                         <option value="RENT">RENT</option>
                         <option value="DEPOSIT">DEPOSIT</option>
                         <option value="EXPENSE">EXPENSE</option>
                         <option value="REFUND">REFUND</option>
                       </select>
-                    ) : l.type}
+                    ) : (
+                      l.type
+                    )}
                   </td>
 
                   <td data-label="Apartment">
@@ -178,14 +203,23 @@ export default function LogPage() {
                       <select
                         className="input"
                         value={form.apartmentId || ''}
-                        onChange={e => setForm((f: any) => ({ ...f, apartmentId: e.target.value || undefined }))}
+                        onChange={e =>
+                          setForm((f: any) => ({
+                            ...f,
+                            apartmentId: e.target.value || undefined,
+                          }))
+                        }
                       >
                         <option value="">(none)</option>
                         {store.apartments.map(a => (
-                          <option key={a.id} value={a.id}>{a.name}</option>
+                          <option key={a.id} value={a.id}>
+                            {a.name}
+                          </option>
                         ))}
                       </select>
-                    ) : (aptMap[l.apartmentId || ''] || '—')}
+                    ) : (
+                      aptMap[l.apartmentId || ''] || '—'
+                    )}
                   </td>
 
                   <td data-label="Tenant">
@@ -193,19 +227,28 @@ export default function LogPage() {
                       <select
                         className="input"
                         value={form.tenantId || ''}
-                        onChange={e => setForm((f: any) => ({ ...f, tenantId: e.target.value || undefined }))}
+                        onChange={e =>
+                          setForm((f: any) => ({
+                            ...f,
+                            tenantId: e.target.value || undefined,
+                          }))
+                        }
                       >
                         <option value="">(none)</option>
                         {store.tenants.map(t => (
-                          <option key={t.id} value={t.id}>{t.name}</option>
+                          <option key={t.id} value={t.id}>
+                            {t.name}
+                          </option>
                         ))}
                       </select>
-                    ) : (tenMap[l.tenantId || ''] || '—')}
+                    ) : (
+                      tenMap[l.tenantId || ''] || '—'
+                    )}
                   </td>
 
                   <td data-label="From → To">
                     {isEdit ? (
-                      <div style={{display:'flex',gap:8}}>
+                      <div style={{ display: 'flex', gap: 8 }}>
                         <input
                           className="input"
                           type="date"
@@ -213,7 +256,9 @@ export default function LogPage() {
                           onChange={e => setForm((f: any) => ({ ...f, from: e.target.value }))}
                           aria-label="from"
                         />
-                        <span className="mono" style={{alignSelf:'center'}}>→</span>
+                        <span className="mono" style={{ alignSelf: 'center' }}>
+                          →
+                        </span>
                         <input
                           className="input"
                           type="date"
@@ -237,7 +282,9 @@ export default function LogPage() {
                         value={form.amount ?? 0}
                         onChange={e => setForm((f: any) => ({ ...f, amount: e.target.value }))}
                       />
-                    ) : <Money n={l.amount || 0} currency={currency} />}
+                    ) : (
+                      <Money n={l.amount || 0} currency={currency} />
+                    )}
                   </td>
 
                   <td data-label="Note">
@@ -247,19 +294,29 @@ export default function LogPage() {
                         value={form.note || ''}
                         onChange={e => setForm((f: any) => ({ ...f, note: e.target.value }))}
                       />
-                    ) : (l.note || '—')}
+                    ) : (
+                      l.note || '—'
+                    )}
                   </td>
 
-                  <td className="mono" data-label="Actions" style={{whiteSpace:'nowrap'}}>
+                  <td className="mono" data-label="Actions" style={{ whiteSpace: 'nowrap' }}>
                     {isEdit ? (
                       <>
-                        <button className="btn" onClick={save} disabled={saving}>Save</button>{' '}
-                        <button className="btn" onClick={cancel}>Cancel</button>
+                        <button className="btn" onClick={save} disabled={saving}>
+                          Save
+                        </button>{' '}
+                        <button className="btn" onClick={cancel}>
+                          Cancel
+                        </button>
                       </>
                     ) : (
                       <>
-                        <button className="btn" onClick={() => beginEdit(l.id)}>Edit</button>{' '}
-                        <button className="btn" onClick={() => remove(l.id)}>Delete</button>
+                        <button className="btn" onClick={() => beginEdit(l.id)}>
+                          Edit
+                        </button>{' '}
+                        <button className="btn" onClick={() => remove(l.id)}>
+                          Delete
+                        </button>
                       </>
                     )}
                   </td>
