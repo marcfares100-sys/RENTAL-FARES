@@ -1,3 +1,4 @@
+// app/layout.tsx
 import './globals.css';
 import Gate from '@/components/Gate';
 import Link from 'next/link';
@@ -27,10 +28,14 @@ export default async function RootLayout({
               <Link className="btn" href="/add">Adding</Link>
               <Link className="btn" href="/properties">Properties</Link>
               <Link className="btn" href="/tenants">Tenants</Link>
+              <Link className="btn" href="/log">Log</Link>
             </div>
           </div>
+
           {children}
         </div>
+
+        {/* Auth Gate overlays the app if access cookie is missing */}
         <Gate hasCookie={hasCookie} />
       </body>
     </html>
