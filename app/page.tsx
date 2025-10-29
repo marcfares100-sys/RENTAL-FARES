@@ -2,6 +2,7 @@
 import { kvGet } from '@/lib/kv';
 import type { Store } from './api/store/route';
 import { Money, Section } from '@/components/UI';
+import QuickAdd from '@/components/QuickAdd';
 
 const STORE_KEY = 'rental:store:v1';
 
@@ -15,52 +16,68 @@ export default async function Page() {
     };
 
   const currency = store.currency ?? 'USD';
-  const { rent, dep, exp, net } = summarizeTotals(store);
-  const roiRows = computeROIByApartment(store);     // <-- NEW
-  const coverage = computeCoverage(store);          // <-- unchanged API (but works with subs)
+  const { rent, dep, exp, net, byApt } = summarize(store);
+  const coverage = computeCoverage(store); // rows with to + daysLeft
+
+  // helper: best coverage per apartment (max 'to')
+  const bestByApartment = new Map<string,{to?:string; daysLeft:number}>();
+  for (const c of coverage) {
+    if (!c.apartmentId) continue;
+    const cur = bestByApartment.get(c.apartmentId);
+    if (!cur || (cur.to || '') < (c.to || '')) bestByApartment.set(c.apartmentId, {to:c.to, daysLeft:c.daysLeft});
+  }
 
   return (
     <main className="row">
       {/* Totals */}
       <Section title="Totals">
-        <div style={{ display: 'grid', gap: 8 }}>
-          <div> Total Rent<br/><Money n={rent} currency={currency} /></div>
-          <div> Expenses<br/><Money n={exp} currency={currency} /></div>
-          <div> Deposits<br/><Money n={dep} currency={currency} /></div>
-          <div> Net<br/><Money n={net} currency={currency} /></div>
-          <div style={{ marginTop: 12 }}><a className="btn" href="/add">Add entries</a></div>
+        <div style={{ display:'grid', gap:10 }}>
+          <div>Total Rent<br/><Money n={rent} currency={currency}/></div>
+          <div>Expenses<br/><Money n={exp}  currency={currency}/></div>
+          <div>Deposits<br/><Money n={dep}  currency={currency}/></div>
+          <div>Net<br/><Money n={net}  currency={currency}/></div>
+          <div style={{marginTop:12}}><a className="btn" href="/add">Add entries</a></div>
         </div>
       </Section>
 
-      {/* ROI (aggregated by parent property, including subs) */}
+      {/* Quick Add */}
+      <QuickAdd />
+
+      {/* ROI */}
       <Section title="ROI by Property">
-        {roiRows.length === 0 ? (
+        {byApt.size === 0 ? (
           <p>No properties yet. Add from <a href="/properties">Properties</a> or <a href="/add">Adding</a>.</p>
         ) : (
           <table className="rtable">
             <thead>
               <tr>
-                <th>Property</th><th>Income (12m)</th><th>Expenses (12m)</th><th>Net</th><th>Purchase</th><th>Paid Until</th><th>ROI</th>
+                <th>Property</th>
+                <th>Income (12m)</th>
+                <th>Expenses (12m)</th>
+                <th>Net</th>
+                <th>Purchase</th>
+                <th>Paid Until</th>
+                <th>Status</th>
+                <th>ROI</th>
               </tr>
             </thead>
             <tbody>
-              {roiRows.map(row => {
+              {[...byApt.entries()].map(([id,row])=>{
                 const netVal = row.income - row.expense;
                 const roi = row.purchase ? netVal / row.purchase : 0;
-
-                const best = coverage
-                  .filter(c => c.apartmentId === row.id)
-                  .sort((a, b) => (b.to || '').localeCompare(a.to || ''))[0];
-
+                const best = bestByApartment.get(id);
+                const toTxt = best?.to ? fmtLong(best.to) : '—';
+                const status = best ? StatusPill(best.daysLeft) : <span className="pill warn">No coverage</span>;
                 return (
-                  <tr key={row.id}>
-                    <td>{row.name}</td>
-                    <td><Money n={row.income} currency={currency} /></td>
-                    <td><Money n={row.expense} currency={currency} /></td>
-                    <td><Money n={netVal} currency={currency} /></td>
-                    <td><Money n={row.purchase} currency={currency} /></td>
-                    <td>{best?.to ? fmtLong(best.to) : '—'}</td>
-                    <td>{(roi * 100).toFixed(1)}%</td>
+                  <tr key={id}>
+                    <td data-label="Property">{row.name}</td>
+                    <td data-label="Income"><Money n={row.income} currency={currency}/></td>
+                    <td data-label="Expenses"><Money n={row.expense} currency={currency}/></td>
+                    <td data-label="Net"><Money n={netVal} currency={currency}/></td>
+                    <td data-label="Purchase"><Money n={row.purchase} currency={currency}/></td>
+                    <td data-label="Paid Until">{toTxt}</td>
+                    <td data-label="Status">{status}</td>
+                    <td data-label="ROI">{(roi*100).toFixed(1)}%</td>
                   </tr>
                 );
               })}
@@ -69,36 +86,31 @@ export default async function Page() {
         )}
       </Section>
 
-      {/* Due & Late (unchanged display; already supports “Paid Until” + status) */}
+      {/* Due & Late */}
       <Section title="Due & Late">
         {coverage.length === 0 ? (
           <p>No rent coverage entries yet.</p>
         ) : (
           <table className="rtable">
             <thead>
-              <tr><th>Apartment</th><th>Tenant</th><th>Paid Until</th><th>Status</th></tr>
+              <tr>
+                <th>Apartment</th>
+                <th>Tenant</th>
+                <th>Paid Until</th>
+                <th>Status</th>
+              </tr>
             </thead>
             <tbody>
               {coverage
-                .sort((a, b) => a.daysLeft - b.daysLeft)
-                .map(row => (
+                .sort((a,b)=>a.daysLeft - b.daysLeft)
+                .map(row=>(
                   <tr key={row.key}>
-                    <td>{row.apartmentName || '—'}</td>
-                    <td>{row.tenantName || '—'}</td>
-                    <td>{row.to ? fmtLong(row.to) : '—'}</td>
-                    <td>
-                      {row.to ? (
-                        row.daysLeft >= 0 ? (
-                          <span className="badge success">OK ({row.daysLeft} {row.daysLeft === 1 ? 'day' : 'days'} left)</span>
-                        ) : (
-                          <span className="badge danger">OVERDUE ({Math.abs(row.daysLeft)} {Math.abs(row.daysLeft) === 1 ? 'day' : 'days'})</span>
-                        )
-                      ) : (
-                        <span className="badge warn">No coverage</span>
-                      )}
-                    </td>
+                    <td data-label="Apartment">{row.apartmentName || '—'}</td>
+                    <td data-label="Tenant">{row.tenantName || '—'}</td>
+                    <td data-label="Paid Until">{row.to ? fmtLong(row.to) : '—'}</td>
+                    <td data-label="Status">{StatusPill(row.daysLeft)}</td>
                   </tr>
-              ))}
+                ))}
             </tbody>
           </table>
         )}
@@ -109,40 +121,39 @@ export default async function Page() {
 
 /* ---------- helpers ---------- */
 
-function summarizeTotals(store: Store) {
+function StatusPill(daysLeft:number){
+  if (Number.isFinite(daysLeft)) {
+    if (daysLeft >= 7) return <span className="pill ok">OK ({daysLeft} days left)</span>;
+    if (daysLeft >= 0) return <span className="pill warn">OK ({daysLeft} days left)</span>;
+    return <span className="pill dang">OVERDUE ({Math.abs(daysLeft)} days)</span>;
+  }
+  return <span className="pill warn">No coverage</span>;
+}
+
+function summarize(store: Store) {
   const sum = (f: (x: any) => number) => store.ledger.reduce((a, b) => a + f(b), 0);
   const rent = sum(l => (l.type === 'RENT' ? l.amount : 0));
   const dep = sum(l => (l.type === 'DEPOSIT' ? l.amount : 0));
   const exp = sum(l => (l.type === 'EXPENSE' ? l.amount : 0));
   const net = rent - exp;
-  return { rent, dep, exp, net };
-}
 
-/** Aggregate income/expense per PARENT apartment (includes entries with any subId). */
-function computeROIByApartment(store: Store) {
-  type Row = { id: string; name: string; income: number; expense: number; purchase: number };
-  const rows: Row[] = store.apartments.map(a => {
-    const subs = a.sub ?? [];
-    const subPurchase = subs.reduce((s, x) => s + (x.purchase || 0), 0);
-    return { id: a.id, name: a.name, income: 0, expense: 0, purchase: (a.purchase || 0) + subPurchase };
-  });
+  const byApt = new Map<string,{ name:string; income:number; expense:number; purchase:number }>();
+  for (const a of store.apartments)
+    byApt.set(a.id,{ name:a.name, income:0, expense:0, purchase:a.purchase || 0 });
 
   for (const l of store.ledger) {
     if (!l.apartmentId) continue;
-    const r = rows.find(x => x.id === l.apartmentId);
-    if (!r) continue;
-    if (l.type === 'RENT') r.income += l.amount;
-    if (l.type === 'EXPENSE') r.expense += l.amount;
+    const row = byApt.get(l.apartmentId);
+    if (!row) continue;
+    if (l.type==='RENT') row.income += l.amount;
+    if (l.type==='EXPENSE') row.expense += l.amount;
   }
-  return rows;
+  return { rent, dep, exp, net, byApt };
 }
 
 function computeCoverage(store: Store) {
-  const map = new Map<
-    string,
-    { key: string; apartmentId?: string; tenantId?: string; apartmentName?: string; tenantName?: string; to?: string }
-  >();
-
+  // choose the latest "to" per (apartmentId, tenantId)
+  const map = new Map<string, { key:string; apartmentId?:string; tenantId?:string; apartmentName?:string; tenantName?:string; to?:string }>();
   const aptById = Object.fromEntries(store.apartments.map(a => [a.id, a.name]));
   const tenById = Object.fromEntries(store.tenants.map(t => [t.id, t.name]));
 
@@ -162,19 +173,16 @@ function computeCoverage(store: Store) {
     }
   }
 
-  const todayISO = new Date().toISOString().slice(0, 10);
-  const today = new Date(todayISO + 'T00:00:00Z');
-
-  return [...map.values()].map(r => {
-    const daysLeft =
-      r.to != null
-        ? Math.ceil((new Date(r.to + 'T00:00:00Z').getTime() - today.getTime()) / 86400000)
-        : Number.MIN_SAFE_INTEGER;
-    return { ...r, daysLeft };
-  });
+  // today diff
+  const todayISO = new Date().toISOString().slice(0,10);
+  const today = new Date(todayISO+'T00:00:00Z');
+  return [...map.values()].map(r => ({
+    ...r,
+    daysLeft: r.to ? Math.ceil((new Date(r.to+'T00:00:00Z').getTime() - today.getTime()) / 86400000) : Number.NEGATIVE_INFINITY
+  }));
 }
 
 function fmtLong(iso: string) {
   const d = new Date(iso + 'T00:00:00Z');
-  return d.toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: '2-digit' });
+  return d.toLocaleDateString(undefined, { year:'numeric', month:'short', day:'2-digit' });
 }
